@@ -97,7 +97,7 @@ CONFIG_CLEAN_VPATH_FILES =
 am__installdirs = "$(DESTDIR)$(bindir)"
 PROGRAMS = $(bin_PROGRAMS)
 am_lora_detector_OBJECTS = lora_detector.$(OBJEXT) fields.$(OBJEXT) \
-	lora_packet.$(OBJEXT)
+	lora_packet.$(OBJEXT) black_list.$(OBJEXT)
 lora_detector_OBJECTS = $(am_lora_detector_OBJECTS)
 lora_detector_DEPENDENCIES =
 AM_V_P = $(am__v_P_$(V))
@@ -274,7 +274,7 @@ top_srcdir = .
 unirec_CFLAGS = -I/usr/local/include 
 unirec_LIBS = -lunirec 
 ACLOCAL_AMFLAGS = -I m4
-lora_detector_SOURCES = lora_detector.c fields.c fields.h lora_packet.c lora_packet.h
+lora_detector_SOURCES = lora_detector.c fields.c fields.h lora_packet.c lora_packet.h black_list.c black_list.h
 lora_detector_LDADD = -lunirec -ltrap -lm
 BUILT_SOURCES = fields.h fields.c
 CLEANFILES = fields.c fields.h
@@ -386,6 +386,7 @@ mostlyclean-compile:
 distclean-compile:
 	-rm -f *.tab.c
 
+include ./$(DEPDIR)/black_list.Po
 include ./$(DEPDIR)/fields.Po
 include ./$(DEPDIR)/lora_detector.Po
 include ./$(DEPDIR)/lora_packet.Po

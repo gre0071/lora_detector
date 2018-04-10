@@ -56,6 +56,15 @@
 #include "fields.h"
 #include "lora_packet.h"
 #include <string.h>
+#include "black_list.h"
+
+struct bl_device {
+    uint64_t DEV_ADDR;
+    double AIR_TIME;
+    uint8_t ENABLE;
+    uint64_t TIMESTAMP;
+    struct bl_device *next;
+};
 
 /**
  * Definition of fields used in unirec templates (for both input and output interfaces) in this example basic flow from flow_meter
@@ -64,7 +73,7 @@
 UR_FIELDS(
         string GW_ID,
         string NODE_MAC,
-        string UTC_TIME,
+        uint64 TIMESTAMP,
         uint32 US_COUNT,
         uint32 FRQ,
         uint32 RF_CHAIN,
@@ -93,7 +102,9 @@ UR_FIELDS(
         string MHDR,
         string MIC,
         string NET_ID,
-        string PHY_PAYLOAD
+        string PHY_PAYLOAD,
+        uint64 AIR_TIME,
+        uint8 ENABLE
         )
 
 trap_module_info_t *module_info = NULL;
@@ -134,16 +145,6 @@ static int stop = 0;
  * Function to handle SIGTERM and SIGINT signals (used to stop the module)
  */
 TRAP_DEFAULT_SIGNAL_HANDLER(stop = 1)
-
-// TODO
-//char *memChar(uint16_t len, char *value) {
-//    
-//    char *buff = malloc(len);
-//    memcpy(buff, value, len);
-//    buff[len] = '\0';
-//    
-//    return buff;
-//}
 
 int main(int argc, char **argv) {
     int ret;
@@ -193,15 +194,14 @@ int main(int argc, char **argv) {
 
 
     /* **** Create UniRec templates **** */
-    // GW_ID,NODE_MAC,UTC_TIME,US_COUNT,FRQ,RF_CHAIN,RX_CHAIN,STATUS,SIZE,MOD,BAD_WIDTH,SF,CODE_RATE,RSSI,SNR,PHY_PAYLOAD
-    ur_template_t *in_tmplt = ur_create_input_template(0, "SIZE,SF,BAD_WIDTH,CODE_RATE,PHY_PAYLOAD", NULL); // GW_ID,NODE_MAC,UTC_TIME
+    ur_template_t *in_tmplt = ur_create_input_template(0, "SIZE,SF,BAD_WIDTH,CODE_RATE,TIMESTAMP,PHY_PAYLOAD", NULL);
     if (in_tmplt == NULL) {
         fprintf(stderr, "Error: Input template could not be created.\n");
         return -1;
     }
 
 
-    ur_template_t *out_tmplt = ur_create_output_template(0, "APP_EUI,APP_NONCE,DEV_ADDR,DEV_EUI,DEV_NONCE,FCNT,FCTRL,FHDR,F_OPTS,F_PORT,FRM_PAYLOAD,MAC_PAYLOAD,MHDR,MIC,NET_ID,PHY_PAYLOAD", NULL);
+    ur_template_t *out_tmplt = ur_create_output_template(0, "DEV_ADDR,TIMESTAMP,AIR_TIME,PHY_PAYLOAD,ENABLE", NULL);
     if (out_tmplt == NULL) {
         ur_free_template(in_tmplt);
         fprintf(stderr, "Error: Output template could not be created.\n");
@@ -216,7 +216,6 @@ int main(int argc, char **argv) {
         fprintf(stderr, "Error: Memory allocation problem (output record).\n");
         return -1;
     }
-
 
     /* **** Main processing loop **** */
     // Read data from input, process them and write to output
@@ -265,7 +264,6 @@ int main(int argc, char **argv) {
             ur_set_string(out_tmplt, buffer, F_NET_ID, NetID);
             ur_set_string(out_tmplt, buffer, F_DEV_ADDR, DevAddr);
             ur_set_string(out_tmplt, buffer, F_MIC, MIC);
-            // TODO CFList
         } else if (lr_is_data_message()) {
             ur_set_string(out_tmplt, buffer, F_DEV_ADDR, DevAddr);
             ur_set_string(out_tmplt, buffer, F_FCTRL, FCtrl);
@@ -274,27 +272,40 @@ int main(int argc, char **argv) {
             ur_set_string(out_tmplt, buffer, F_FHDR, FHDR);
             ur_set_string(out_tmplt, buffer, F_F_PORT, FPort);
             ur_set_string(out_tmplt, buffer, F_MAC_PAYLOAD, MACPayload);
-            // TODO
-            if (FOptsLen != 0) {
+
+            if (FOptsLen != 0)
                 ur_set_string(out_tmplt, buffer, F_F_OPTS, FOpts);
-            }
-            //            ur_set_string(out_tmplt, buffer, F_FRM_PAYLOAD, FRMPayload);
         }
 
         // Time between packet subsequent starts, duty cycle for Czech Republic (0,10%)
-        printf("AIR TIME: %f \n", lr_airtime_calculate(ur_get(in_tmplt, in_rec, F_SIZE), ur_get(in_tmplt, in_rec, F_SF)
-                , ur_get(in_tmplt, in_rec, F_CODE_RATE), 8, ur_get(in_tmplt, in_rec, F_BAD_WIDTH)));
+        // TODO parm -d 0.1, 1, 10 ... [duty-cycle]
+        double airtime = lr_airtime_calculate(ur_get(in_tmplt, in_rec, F_SIZE), ur_get(in_tmplt, in_rec, F_SF)
+                , ur_get(in_tmplt, in_rec, F_CODE_RATE), 8, ur_get(in_tmplt, in_rec, F_BAD_WIDTH));
+        int timestamp = ur_get(in_tmplt, in_rec, F_TIMESTAMP);
 
-        
-        // TODO Sqlite3 DB (Black List)
-        
-        
-        
 
-        if (((uint32_t) ur_get(in_tmplt, in_rec, F_SIZE) == ur_get_len(in_tmplt, in_rec, F_PHY_PAYLOAD))) {
-            ur_copy_fields(out_tmplt, out_rec, out_tmplt, buffer);
-            ret = trap_send(0, buffer, 10000);
-            TRAP_DEFAULT_SEND_ERROR_HANDLING(ret, continue, break);
+        // Black List
+        struct bl_device *pre = bl_get_device(lr_uint8_to_uint64(lr_arr_to_uint8(DevAddr)));
+
+        if (pre != NULL) {
+            if ((pre->TIMESTAMP + pre->AIR_TIME) <= timestamp)
+                pre->ENABLE = 0;
+            else
+                pre->ENABLE = 1;
+            pre->AIR_TIME = airtime;
+            pre->TIMESTAMP = timestamp;
+
+            if (((uint32_t) ur_get(in_tmplt, in_rec, F_SIZE) == ur_get_len(in_tmplt, in_rec, F_PHY_PAYLOAD)) && (ur_get_len(out_tmplt, buffer, F_PHY_PAYLOAD) > 8)) {
+                ur_set(out_tmplt, buffer, F_ENABLE, pre->ENABLE);
+                ur_set(out_tmplt, buffer, F_AIR_TIME, pre->AIR_TIME);
+                ur_set(out_tmplt, buffer, F_TIMESTAMP, pre->TIMESTAMP);
+                ur_copy_fields(out_tmplt, out_rec, out_tmplt, buffer);
+
+                ret = trap_send(0, buffer, 10000);
+                TRAP_DEFAULT_SEND_ERROR_HANDLING(ret, continue, break);
+            }
+        } else {
+            bl_insert_device(lr_uint8_to_uint64(lr_arr_to_uint8(DevAddr)), timestamp, airtime, 1);
         }
 
         lr_free();

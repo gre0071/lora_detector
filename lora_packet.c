@@ -94,6 +94,17 @@ uint8_t *lr_arr_to_uint8(char* arr) {
     return _array;
 }
 
+uint64_t lr_uint8_to_uint64(uint8_t* var) {
+    return (((uint64_t) var[7]) << 56) |
+            (((uint64_t) var[6]) << 48) |
+            (((uint64_t) var[5]) << 40) |
+            (((uint64_t) var[4]) << 32) |
+            (((uint64_t) var[3]) << 24) |
+            (((uint64_t) var[2]) << 16) |
+            (((uint64_t) var[1]) << 8) |
+            (((uint64_t) var[0]) << 0);
+}
+
 static void lr_print_uint8(uint8_t* str) {
     unsigned int len = (strlen(str));
     unsigned char i;
@@ -294,6 +305,7 @@ void lr_initialization(char* packet) {
 
 // Sector lora packet decode
 // TODO
+
 uint8_t *lr_decode(uint8_t* nwkSKey, uint8_t* appSKey) {
 
     int block = 0, len = 0;
@@ -356,6 +368,6 @@ double lr_airtime_calculate(uint32_t pay_size, uint32_t sf, uint32_t cd_rate, ui
     t_payload = pay_symb_nb * t_sym;
     t_packet = t_premble + t_payload;
 
-    return t_packet;
+    return t_packet * 1000;
 }
 // endSector

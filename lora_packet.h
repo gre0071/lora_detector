@@ -62,6 +62,7 @@ extern "C" {
     char *lr_revers_array(char *arr);
     char *lr_slice(char *arr, size_t start, size_t size);
     uint8_t *lr_arr_to_uint8(char* arr);
+    uint64_t lr_uint8_to_uint64(uint8_t* var);
     static void lr_print_uint8(uint8_t* str);
 
     uint8_t *lr_decode(uint8_t* nwkSKey, uint8_t* appSKey);
