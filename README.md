@@ -6,9 +6,9 @@
 # LoRaWAN detector
 
 ## Description
-This detector serves for LoRaWAN monitoring air time of individual sensors. The detector can decode payload based on Network Sesion Key and Application Sesion Key. 
+This detector is intended for LoRaWAN monitoring of airtime for individual sensors. The detector can decode payload based on Network Session Key and Application Session Key.
 
-The input of this detector is a fields contain size payload SIZE, spreding factor SF, band width BAD_WIDTH, code rate CODE_RATE, time stamp record TIMESTAMP and  payload from message PHY_PAYLOAD. This values are captured from LoRaWAN packet.
+The inputs of this detector are fields containing size payload SIZE, spreading factor SF, bandwidth BAD_WIDTH, code rate CODE_RATE, time stamp record TIMESTAMP and payload from message PHY_PAYLOAD. These values are captured from LoRaWAN packet.
 
 ## Interfaces
 - Input: One UniRec interface
