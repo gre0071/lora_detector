@@ -18,7 +18,6 @@ The input of this detector is a fields contain size payload SIZE, spreding facto
   
 ## Parameters
 ### Module specific parameters
-- `-d  --dutycycle <double>`           Defines time between packet subsequence starts, default value duty cycle is 0.10%.
 - `-e  --header <int>`         Defines explicit header 1/0 (true/false), default value 1 (true).
 - `-r  --data-rate <int>`      Low data rate optimization 1/0 (true/false)
 - `-p  --preamble <int>`       Preamble symbol is defined for all regions in LoRaWAN 1.0 standard is 8, this is a default value.
