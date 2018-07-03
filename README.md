@@ -3,7 +3,7 @@
 
 ---
 # README
-# LoRaWAN detector
+# LoRaWAN Detection - Airtime regulations
 
 ## Description
 This detector is intended for LoRaWAN monitoring of airtime for individual sensors. The detector can decode payload based on Network Session Key and Application Session Key.
