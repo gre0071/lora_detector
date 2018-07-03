@@ -57,11 +57,12 @@ extern "C" {
     bool lr_is_join_request_message();
     bool lr_is_join_accept_message();
     
-    double lr_airtime_calculate(unsigned int pay_size, unsigned int sf, unsigned int cd_rate, unsigned int prem_sym, unsigned int band, double duty_cycle);
+    double lr_airtime_calculate(unsigned int pay_size, uint8_t header, uint8_t dr, unsigned int sf, unsigned int cd_rate, unsigned int prem_sym, unsigned int band, double duty_cycle);
 
     char *lr_revers_array(char *arr);
     char *lr_slice(char *arr, size_t start, size_t size);
     uint8_t *lr_arr_to_uint8(char* arr);
+    uint16_t lr_arr_to_uint16(char* arr);
     uint64_t lr_uint8_to_uint64(uint8_t* var);
     void lr_print_uint8(uint8_t* str);
     char *lr_uint8_to_string(uint8_t* arr);

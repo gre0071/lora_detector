@@ -1,12 +1,45 @@
-/* 
- * File:   lora_packet.c
- * Author: Erik Gresak
- * Email: gre0071@vsb.cz
- * Created on March 21, 2018, 9:12 AM
+/**
+ * \file lora_packet.c
+ * \brief LoRaWAN Detector of NEMEA module.
+ * \author Erik Gresak <erik.gresak@vsb.cz>
+ * \date 2018
  */
-
-
-
+/*
+ * Copyright (C) 2018 CESNET
+ *
+ * LICENSE TERMS
+ *
+ * Redistribution and use in source and binary forms, with or without
+ * modification, are permitted provided that the following conditions
+ * are met:
+ * 1. Redistributions of source code must retain the above copyright
+ *    notice, this list of conditions and the following disclaimer.
+ * 2. Redistributions in binary form must reproduce the above copyright
+ *    notice, this list of conditions and the following disclaimer in
+ *    the documentation and/or other materials provided with the
+ *    distribution.
+ * 3. Neither the name of the Company nor the names of its contributors
+ *    may be used to endorse or promote products derived from this
+ *    software without specific prior written permission.
+ *
+ * ALTERNATIVELY, provided that this notice is retained in full, this
+ * product may be distributed under the terms of the GNU General Public
+ * License (GPL) version 2 or later, in which case the provisions
+ * of the GPL apply INSTEAD OF those given above.
+ *
+ * This software is provided ``as is'', and any express or implied
+ * warranties, including, but not limited to, the implied warranties of
+ * merchantability and fitness for a particular purpose are disclaimed.
+ * In no event shall the company or contributors be liable for any
+ * direct, indirect, incidental, special, exemplary, or consequential
+ * damages (including, but not limited to, procurement of substitute
+ * goods or services; loss of use, data, or profits; or business
+ * interruption) however caused and on any theory of liability, whether
+ * in contract, strict liability, or tort (including negligence or
+ * otherwise) arising in any way out of the use of this software, even
+ * if advised of the possibility of such damage.
+ *
+ */
 
 #include <string.h>
 #include <stdio.h>
@@ -14,11 +47,22 @@
 #include <string.h>
 #include <stdbool.h>
 #include <math.h>
+#include <netinet/in.h>
 
 #include "lora_packet.h"
 #include "aes/aes.h"
 
-// Sector Constant
+/** 
+ * Define message types:
+ *   000 - 0    Join Request
+ *   001 - 1    Join Accept
+ *   010 - 2    Unconfirmed Data Up
+ *   011 - 3    Unconfirmed Data Down
+ *   100 - 4    Confirmed Data Up
+ *   101 - 5    Confirmed Data Down
+ *   000 - 0    Directions Up
+ *   001 - 1    Directions Down
+ *  */
 #define MTYPE_JOIN_REQUEST 0
 #define MTYPE_JOIN_ACCEPT 1
 #define MTYPE_UNCONFIRMED_DATA_UP 2
@@ -28,8 +72,14 @@
 
 #define MTYPE_DIRECTIONS_UP 0x00
 #define MTYPE_DIRECTIONS_DOWN 0x01
-// endSector
 
+/** 
+ * The lr_slice() method selects the elements starting at the given start 
+ * argument, and ends at, but does not include.
+ * arr   - An pointer to char array
+ * start - An integer that specifies where to start the selection
+ * size  - An integer that specifies where to end the selection. 
+ */
 char *lr_slice(char *arr, size_t start, size_t size) {
     if (arr == NULL)
         return NULL;
@@ -46,6 +96,10 @@ char *lr_slice(char *arr, size_t start, size_t size) {
     return _arr;
 }
 
+/** 
+ * The lr_revers_array() method for reversing array
+ * arr - An pointer to char array
+ */
 char *lr_revers_array(char *arr) {
     if (arr == NULL)
         return NULL;
@@ -70,6 +124,10 @@ char *lr_revers_array(char *arr) {
     return _array;
 }
 
+/** 
+ * The lr_arr_to_uint8() method converting char array to uint8_t array.
+ * arr - An pointer to char array
+ */
 uint8_t *lr_arr_to_uint8(char* arr) {
     if (arr == NULL)
         return NULL;
@@ -94,6 +152,18 @@ uint8_t *lr_arr_to_uint8(char* arr) {
     return _array;
 }
 
+/** 
+ * The lr_arr_to_uint16() method converting char array to uint16_t array.
+ * arr - An pointer to char array
+ */
+uint16_t lr_arr_to_uint16(char* arr) {
+    return ntohs(*(uint16_t*) lr_arr_to_uint8(arr));
+}
+
+/** 
+ * The lr_uint8_to_uint64() method converting uint8_t to uint64_t array.
+ * var - An pointer to uint8_t array
+ */
 uint64_t lr_uint8_to_uint64(uint8_t* var) {
     return (((uint64_t) var[7]) << 56) |
             (((uint64_t) var[6]) << 48) |
@@ -105,6 +175,10 @@ uint64_t lr_uint8_to_uint64(uint8_t* var) {
             (((uint64_t) var[0]) << 0);
 }
 
+/** 
+ * The lr_print_uint8() method for debugging, print value.
+ * arr - An pointer to uint8_t array
+ */
 void lr_print_uint8(uint8_t* arr) {
     unsigned int len = (strlen(arr));
     unsigned char i;
@@ -114,23 +188,31 @@ void lr_print_uint8(uint8_t* arr) {
     printf("\n");
 }
 
+/** 
+ * The lr_uint8_to_string() method converting uint8_t array to char array.
+ * arr - An pointer to uint8_t array
+ */
 char *lr_uint8_to_string(uint8_t* arr) {
     unsigned int len = (strlen(arr));
     unsigned char i;
-    
-    char *_array = (char*) malloc(len*2);
+
+    char *_array = (char*) malloc(len * 2);
     char *_test = (char*) malloc(2);
-    
+
     for (i = 0; i < len; ++i) {
         sprintf(_test, "%.2x", arr[i]);
         strcat(_array, _test);
     }
-    
-    _array[len*2] = '\0';
-    
+
+    _array[len * 2] = '\0';
+
     return _array;
 }
 
+/** 
+ * The lr_get_int() method converting hex value to integer.
+ * arr - An pointer to char array
+ */
 int lr_get_int(char *arr) {
     char hexDigits[16] = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F'};
     char *_i = (char*) malloc(strlen(arr));
@@ -156,10 +238,16 @@ int lr_get_int(char *arr) {
     return decimal;
 }
 
+/** 
+ * The lr_get_int() return message type integer.
+ */
 int lr_get_message_type() {
-    return (lr_get_int(MHDR) & 0xff) >> 5; //5
+    return (lr_get_int(MHDR) & 0xff) >> 5;
 }
 
+/** 
+ * The lr_get_direction() return define message type.
+ */
 uint8_t lr_get_direction() {
     switch (lr_get_message_type()) {
         case MTYPE_JOIN_REQUEST:
@@ -199,6 +287,9 @@ bool lr_is_join_accept_message() {
     return (lr_get_message_type() == MTYPE_JOIN_ACCEPT);
 }
 
+/**
+ * The lr_free() free lora_packet and fields.
+ */
 void lr_free() {
     free(MHDR);
     free(FCtrl);
@@ -233,13 +324,15 @@ void lr_free() {
     FHDR = NULL;
 }
 
-// Sector initialization
-
+/** 
+ * Initialization physical payload for parsing and reversing octet fields.
+ * packet - physical payload
+ */
 void lr_initialization(char* packet) {
     size_t _strl = strlen(packet);
     char *_packet = packet;
 
-    // initialization
+    // Allocation
     MHDR = (char*) malloc(2);
     MIC = (char*) malloc(8);
     FCtrl = (char*) malloc(2);
@@ -279,9 +372,7 @@ void lr_initialization(char* packet) {
         MIC = lr_slice(_packet, _strl - 8, 8);
     } else if (lr_is_data_message()) {
 
-
         MACPayload = (char*) malloc(_strl - 10);
-
         MACPayload = lr_slice(_packet, 2, (_strl - 10));
         MIC = lr_slice(_packet, (_strl - 8), 8);
 
@@ -294,8 +385,6 @@ void lr_initialization(char* packet) {
             FOpts = (char*) malloc(FOptsLen);
             FOpts = lr_slice(MACPayload, 14, FOptsLen);
         }
-
-
 
         int FHDR_length = 14 + FOptsLen;
         FHDR = (char*) malloc(FHDR_length);
@@ -318,9 +407,13 @@ void lr_initialization(char* packet) {
     }
 
 }
-// endSector
 
-// Sector lora packet decode
+
+/** 
+ * LoRaWAN ABP packet decode
+ * nwkSkey - An pointer to uint8_t array
+ * appSkey - An pointer to uint8_t array
+ */ 
 uint8_t *lr_decode(uint8_t* nwkSKey, uint8_t* appSKey) {
 
     int block = 0, len = 0;
@@ -367,20 +460,29 @@ uint8_t *lr_decode(uint8_t* nwkSKey, uint8_t* appSKey) {
 
     return dec;
 }
-// endSector
 
-// Sector air-time calculate
-
-double lr_airtime_calculate(uint32_t pay_size, uint32_t sf, uint32_t cd_rate, uint32_t prem_sym, uint32_t band, double duty_cycle) {
+/** 
+ * Air-time calculate
+ * Method for calculate time between packet subsequent starts
+ * [uint32_t] pay_size - Total payload size, 
+ * [uint8_t]  header - Explicit header 1 / 0, true / false
+ * [uint8_t]  dr - Low data optimization 1 / 0, enable / disable
+ * [uint32_t] sf - Spreading factor SF7 - SF12
+ * [uint32_t] cd_rate - Error correction coding 4/5 - 4/8 
+ * [uint32_t] prem_sym - Preamble symbol is defined for all regions 
+ *            in LoRaWAN 1.0 standard is 8, this is a default value.
+ * [uint32_t] band - Typically Bandwidth is 125 KHz
+ * [double]   duty_cycle - Duty Cycle for EU regulation is 0.10%
+ */
+double lr_airtime_calculate(uint32_t pay_size, uint8_t header, uint8_t dr, uint32_t sf, uint32_t cd_rate, uint32_t prem_sym, uint32_t band, double duty_cycle) {
     double t_sym, t_premble, pay_symb_nb, t_payload, t_packet, symb = 0.0;
 
     t_sym = pow(2.0, sf) / (band * 1000.0) * 1000.0;
     t_premble = (prem_sym + 4.25) * t_sym;
-    symb = (ceil((8.0 * pay_size - 4.0 * sf + 28 + 16 - 20.0 * (1 - 1)) / (4.0 * (sf - 2.0 * 0)))*(cd_rate));
+    symb = (ceil((8.0 * pay_size - 4.0 * sf + 28 + 16 - 20.0 * (1 - header)) / (4.0 * (sf - 2.0 * dr)))*(cd_rate));
     pay_symb_nb = 8 + (symb < 0 ? 0 : symb);
     t_payload = pay_symb_nb * t_sym;
     t_packet = t_premble + t_payload;
 
     return t_packet / (duty_cycle / 100);
 }
-// endSector

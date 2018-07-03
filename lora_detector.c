@@ -1,13 +1,11 @@
 /**
- * \file example_module.c
- * \brief Example of NEMEA module.
- * \author Vaclav Bartos <ibartosv@fit.vutbr.cz>
- * \author Marek Svepes <svepemar@fit.cvut.cz>
- * \author Jaroslav Hlavac <hlavaj20@fit.cvut.cz>
- * \date 2016
+ * \file lora_detector.c
+ * \brief LoRaWAN Detector of NEMEA module.
+ * \author Erik Gresak <erik.gresak@vsb.cz>
+ * \date 2018
  */
 /*
- * Copyright (C) 2016 CESNET
+ * Copyright (C) 2018 CESNET
  *
  * LICENSE TERMS
  *
@@ -58,36 +56,32 @@
 #include <string.h>
 #include "black_list.h"
 
+/** Maximum message size */
 #define MAX_MSG_SIZE 10000
 
+/** Define structure for BlackList */
 struct bl_device {
     uint64_t DEV_ADDR;
     double AIR_TIME;
     uint8_t ENABLE;
     uint64_t TIMESTAMP;
+    uint16_t LAST_FCNT;
+    uint8_t RESTART;
     struct bl_device *next;
 };
 
-/**
- * Definition of fields used in unirec templates (for both input and output interfaces) in this example basic flow from flow_meter
+/** 
+ * Statically defined fields contain size payload SIZE, spreding factor SF, 
+ * band width BAD_WIDTH, code rate CODE_RATE, time stamp record TIMESTAMP 
+ * and payload from message PHY_PAYLOAD. This values are captured from 
+ * LoRaWAN packet.
  */
-/*This module functions as a filter of flows forwarded by flow_meter, I need all fields written below to be forwarded to the next module.*/
 UR_FIELDS(
-        string GW_ID,
-        string NODE_MAC,
         uint64 TIMESTAMP,
-        uint32 US_COUNT,
-        uint32 FRQ,
-        uint32 RF_CHAIN,
-        uint32 RX_CHAIN,
-        string STATUS,
         uint32 SIZE,
-        string MOD,
         uint32 BAD_WIDTH,
         uint32 SF,
         uint32 CODE_RATE,
-        double RSSI,
-        double SNR,
         string APP_EUI,
         string APP_NONCE,
         string DEV_ADDR,
@@ -98,8 +92,6 @@ UR_FIELDS(
         string FHDR,
         string F_OPTS,
         string F_PORT,
-        string FRM_PAYLOAD,
-        string LORA_PACKET,
         string MAC_PAYLOAD,
         string MHDR,
         string MIC,
@@ -118,12 +110,12 @@ trap_module_info_t *module_info = NULL;
  * Definition of basic module information - module name, module description, number of input and output interfaces
  */
 #define MODULE_BASIC_INFO(BASIC) \
-  BASIC("Example detection module", \
-        "This module serves as an example of module implementation in TRAP platform. It receives UniRec" \
-        "with flow from different module (flowmeter). It is a filter, it resends all flows initiated on" \
-        "d port and on an address.", 1, 1)
-//BASIC(char *, char *, int, int)
-
+  BASIC("LoRaWAN Detection - Airtime regulations", \
+        "This detector serves for LoRaWAN monitoring air time of individual sensors. " \
+        "The detector can decode payload based on Network Sesion Key and Application Sesion Key. " \
+        "The input of this detector is a fields contain size payload SIZE, spreding " \
+        "factor SF, band width BAD_WIDTH, code rate CODE_RATE, time stamp record TIMESTAMP " \
+        "and payload from message PHY_PAYLOAD. This values are captured from LoRaWAN packet.", 1, 1)
 
 /**
  * Definition of module parameters - every parameter has short_opt, long_opt, description,
@@ -132,16 +124,17 @@ trap_module_info_t *module_info = NULL;
  * Module parameter argument types: int8, int16, int32, int64, uint8, uint16, uint32, uint64, float, string
  */
 #define MODULE_PARAMS(PARAM) \
-  PARAM('p', "port", "Port selected for for filtering.", required_argument, "uint16") \
-  PARAM('d', "dutycycle", "Address selected for filtering.", required_argument, "double")
-//PARAM(char, char *, char *, no_argument  or  required_argument, char *)
+  PARAM('e', "header", "Defines explicit header 1/0 (true/false), default value 1 (true).", required_argument, "int") \
+  PARAM('r', "data-rate", "Low data rate optimization 1/0 (true/false)", required_argument, "int") \
+  PARAM('p', "preamble", "Preamble symbol is defined for all regions in LoRaWAN 1.0 standard is 8, this is a default value.", required_argument, "int") \
+  PARAM('d', "dutycycle", "Defines time between packet subsequence starts, default value dutycycle is 0.10. Dutycycle is expressed as a percentage.", required_argument, "double")
+
 /**
  * To define positional parameter ("param" instead of "-m param" or "--mult param"), use the following definition:
  * PARAM('-', "", "Parameter description", required_argument, "string")
  * There can by any argument type mentioned few lines before.
  * This parameter will be listed in Additional parameters in module help output
  */
-
 
 static int stop = 0;
 
@@ -150,10 +143,18 @@ static int stop = 0;
  */
 TRAP_DEFAULT_SIGNAL_HANDLER(stop = 1)
 
+
+/** ---- MAIN ----- */
 int main(int argc, char **argv) {
     int ret;
     signed char opt;
-    uint16_t port = 1;
+
+    /** 
+     * Default fields for calculate air-time
+     */
+    int hd = 1;
+    int dr = 0;
+    int ps = 8;
     double dt = 0.1;
 
     /* **** TRAP initialization **** */
@@ -164,6 +165,7 @@ int main(int argc, char **argv) {
      * function called "module_getopt_string" and long_options field for getopt_long function in variable "long_options"
      */
     INIT_MODULE_INFO_STRUCT(MODULE_BASIC_INFO, MODULE_PARAMS)
+
     /*
      * Let TRAP library parse program arguments, extract its parameters and initialize module interfaces
      */
@@ -180,12 +182,38 @@ int main(int argc, char **argv) {
      */
     while ((opt = TRAP_GETOPT(argc, argv, module_getopt_string, long_options)) != -1) {
         switch (opt) {
+            case 'e':
+                sscanf(optarg, "%d", &hd);
+                if ((hd == 0) || (hd == 1))
+                    break;
+                fprintf(stderr, "Invalid arguments defines explicit header 1/0 (true/false) -e.\n");
+                FREE_MODULE_INFO_STRUCT(MODULE_BASIC_INFO, MODULE_PARAMS);
+                TRAP_DEFAULT_FINALIZATION();
+                return -1;
+            case 'r':
+                sscanf(optarg, "%d", &dr);
+                if ((dr == 0) || (dr == 1))
+                    break;
+                fprintf(stderr, "Invalid arguments low data rate 1/0 (true/false) -r.\n");
+                FREE_MODULE_INFO_STRUCT(MODULE_BASIC_INFO, MODULE_PARAMS);
+                TRAP_DEFAULT_FINALIZATION();
+                return -1;
             case 'p':
-                sscanf(optarg, "%" SCNu16, &port);
-                break;
+                sscanf(optarg, "%d", &ps);
+                if ((ps >= 0) || (ps <= 100))
+                    break;
+                fprintf(stderr, "Invalid arguments preamble symbol 0 - 100 -p.\n");
+                FREE_MODULE_INFO_STRUCT(MODULE_BASIC_INFO, MODULE_PARAMS);
+                TRAP_DEFAULT_FINALIZATION();
+                return -1;
             case 'd':
                 sscanf(optarg, "%lf", &dt);
-                break;
+                if ((dt >= 0) || (dt <= 100))
+                    break;
+                fprintf(stderr, "Invalid arguments dutycycle 0 - 100% -d.\n");
+                FREE_MODULE_INFO_STRUCT(MODULE_BASIC_INFO, MODULE_PARAMS);
+                TRAP_DEFAULT_FINALIZATION();
+                return -1;
             default:
                 fprintf(stderr, "Invalid arguments.\n");
                 FREE_MODULE_INFO_STRUCT(MODULE_BASIC_INFO, MODULE_PARAMS);
@@ -194,16 +222,14 @@ int main(int argc, char **argv) {
         }
     }
 
-
-
-    /* **** Create UniRec templates **** */
+    /** Create Input UniRec templates */
     ur_template_t *in_tmplt = ur_create_input_template(0, "SIZE,SF,BAD_WIDTH,CODE_RATE,TIMESTAMP,PHY_PAYLOAD", NULL);
     if (in_tmplt == NULL) {
         fprintf(stderr, "Error: Input template could not be created.\n");
         return -1;
     }
 
-
+    /** Create Output UniRec templates */
     ur_template_t *out_tmplt = ur_create_output_template(0, "DEV_ADDR,TIMESTAMP,AIR_TIME,ENABLE,PHY_PAYLOAD", NULL);
     if (out_tmplt == NULL) {
         ur_free_template(in_tmplt);
@@ -211,7 +237,7 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    // Allocate memory for output record
+    /** Allocate memory for output record */
     void *out_rec = ur_create_record(out_tmplt, MAX_MSG_SIZE);
     if (out_rec == NULL) {
         ur_free_template(in_tmplt);
@@ -220,20 +246,24 @@ int main(int argc, char **argv) {
         return -1;
     }
 
-    /* **** Main processing loop **** */
-    // Read data from input, process them and write to output
+    /**  
+     * Main processing loop
+     * Read data from input, process them and write to output  
+     */
     while (!stop) {
         const void *in_rec;
         uint16_t in_rec_size;
 
-        // Receive data from input interface 0.
-        // Block if data are not available immediately (unless a timeout is set using trap_ifcctl)
+        /** 
+         * Receive data from input interface 0.
+         * Block if data are not available immediately (unless a timeout is set using trap_ifcctl)
+         */
         ret = TRAP_RECEIVE(0, in_rec, in_rec_size, in_tmplt);
 
-        // Handle possible errors
+        /** Handle possible errors */
         TRAP_DEFAULT_RECV_ERROR_HANDLING(ret, continue, break);
 
-        // Initialization LoRaWAN packet: 
+        /** Initialization physical payload for parsing and reversing octet fields. */
         lr_initialization(ur_get_ptr(in_tmplt, in_rec, F_PHY_PAYLOAD));
 
         ur_set_string(out_tmplt, out_rec, F_MHDR, MHDR);
@@ -241,10 +271,11 @@ int main(int argc, char **argv) {
 
         if ((ur_get_len(in_tmplt, in_rec, F_NWK_SKEY) == 32) && (ur_get_len(in_tmplt, in_rec, F_APP_SKEY) == 32)) {
             ur_set_string(out_tmplt, out_rec, F_PHY_PAYLOAD, lr_uint8_to_string(lr_decode(
-                    lr_arr_to_uint8(ur_get_var_as_str(in_tmplt, in_rec, F_NWK_SKEY)), 
+                    lr_arr_to_uint8(ur_get_var_as_str(in_tmplt, in_rec, F_NWK_SKEY)),
                     lr_arr_to_uint8(ur_get_var_as_str(in_tmplt, in_rec, F_APP_SKEY)))));
         }
 
+        /** Identity message type */
         if (lr_is_join_request_message()) {
             ur_set_string(out_tmplt, out_rec, F_APP_EUI, AppEUI);
             ur_set_string(out_tmplt, out_rec, F_DEV_EUI, DevEUI);
@@ -268,20 +299,39 @@ int main(int argc, char **argv) {
                 ur_set_string(out_tmplt, out_rec, F_F_OPTS, FOpts);
         }
 
-        // Time between packet subsequent starts, duty cycle default value 0,10%
-        // parm -d 0.1, 1, 10 ... [duty-cycle]
-        double airtime = lr_airtime_calculate(ur_get(in_tmplt, in_rec, F_SIZE), ur_get(in_tmplt, in_rec, F_SF)
-                , ur_get(in_tmplt, in_rec, F_CODE_RATE), 8, ur_get(in_tmplt, in_rec, F_BAD_WIDTH), dt);
+        /** 
+         * Method for calculate time between packet subsequent starts: 
+         * [uint32_t] pay_size - Total payload size, 
+         * [uint8_t]  header - Explicit header 1 / 0, true / false
+         * [uint8_t]  dr - Low data rate optimization 1 / 0, enable / disable
+         * [uint32_t] sf - Spreading factor SF7 - SF12
+         * [uint32_t] cd_rate - Error correction coding 4/5 - 4/8 
+         * [uint32_t] prem_sym - Preamble symbol is defined for all regions 
+         *            in LoRaWAN 1.0 standard is 8, this is a default value.
+         * [uint32_t] band - Typically Bandwidth is 125 KHz
+         * [double]   duty_cycle - Duty Cycle for EU regulation is 0.10%
+         */
+        double airtime = lr_airtime_calculate(ur_get(in_tmplt, in_rec, F_SIZE), hd, dr, ur_get(in_tmplt, in_rec, F_SF)
+                , ur_get(in_tmplt, in_rec, F_CODE_RATE), ps, ur_get(in_tmplt, in_rec, F_BAD_WIDTH), dt);
         int timestamp = ur_get(in_tmplt, in_rec, F_TIMESTAMP);
 
-        // Black List
+        /** 
+         * BlackList
+         * Contain sensors list with identification field DevAddr. Blocking 
+         * list that allow block messages from LoRaWAN infrastructure that 
+         * have a information of history and actual air-time.
+         */
         struct bl_device *pre = bl_get_device(lr_uint8_to_uint64(lr_arr_to_uint8(DevAddr)));
 
         if (pre != NULL) {
+            /** 
+             * Edit fields from exists device 
+             */
             if ((pre->TIMESTAMP + pre->AIR_TIME) <= timestamp)
                 pre->ENABLE = 0;
             else
                 pre->ENABLE = 1;
+
             pre->AIR_TIME = airtime;
             pre->TIMESTAMP = timestamp;
 
@@ -295,22 +345,34 @@ int main(int argc, char **argv) {
                 TRAP_DEFAULT_SEND_ERROR_HANDLING(ret, continue, break);
             }
         } else {
+            /** 
+             * Insert new device to BlackList
+             */
             bl_insert_device(lr_uint8_to_uint64(lr_arr_to_uint8(DevAddr)), timestamp, airtime, 1);
         }
 
+        /** 
+         * Free lora_packet and output record
+         */
         lr_free();
     }
 
 
     /* **** Cleanup **** */
 
-    // Do all necessary cleanup in libtrap before exiting
+    /** 
+     * Do all necessary cleanup in libtrap before exiting
+     */
     TRAP_DEFAULT_FINALIZATION();
 
-    // Release allocated memory for module_info structure
+    /** 
+     * Release allocated memory for module_info structure
+     */
     FREE_MODULE_INFO_STRUCT(MODULE_BASIC_INFO, MODULE_PARAMS)
 
-    // Free unirec templates and output record
+    /** 
+     *  Free unirec templates and output record
+     */
     ur_free_record(out_rec);
     ur_free_template(in_tmplt);
     ur_free_template(out_tmplt);
