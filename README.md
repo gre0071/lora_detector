@@ -12,9 +12,9 @@ The inputs of this detector are fields containing size payload SIZE, spreading f
 
 ## Interfaces
 - Input: One UniRec interface
-  - Template must contain fields SIZE, SF, BAD_WIDTH, CODE_RATE, TIMESTAMP and  PHY_PAYLOAD.
+  - Template must contain fields SIZE, SF, BAD_WIDTH, CODE_RATE, TIMESTAMP and  PHY_PAYLOAD. Optional fields NWK_SKEY and APP_SKEY, which are enabling ABP decryption of the LoRaWAN payload.
 - Output: One UniRec interface
-  - Optional fields NWK_SKEY and APP_SKEY, which are enabling ABP decryption of the LoRaWAN payload.
+  - Template contain this fields DEV_ADDR, TIMESTAMP, AIR_TIME, ENABLE and PHY_PAYLOAD. Where ENABLE indicates violation of regulatory conditions.
   
 ## Parameters
 ### Module specific parameters
