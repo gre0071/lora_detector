@@ -71,10 +71,11 @@ struct bl_device {
 };
 
 /** 
- * Statically defined fields contain size payload SIZE, spreding factor SF, 
- * band width BAD_WIDTH, code rate CODE_RATE, time stamp record TIMESTAMP 
- * and payload from message PHY_PAYLOAD. This values are captured from 
- * LoRaWAN packet.
+ * Statically defined fields contain size payload SIZE, spreading factor SF, 
+ * band width BAD_WIDTH, code rate CODE_RATE, time stamp record TIMESTAMP, 
+ * device address DEV_ADDR, air-time AIR_TIME, enable device ENABLE, network 
+ * session key NWK_SKEY, application session key APP_SKEY and payload from 
+ * message PHY_PAYLOAD. This values are captured from LoRaWAN packet.
  */
 UR_FIELDS(
         uint64 TIMESTAMP,
@@ -82,20 +83,7 @@ UR_FIELDS(
         uint32 BAD_WIDTH,
         uint32 SF,
         uint32 CODE_RATE,
-        string APP_EUI,
-        string APP_NONCE,
         string DEV_ADDR,
-        string DEV_EUI,
-        string DEV_NONCE,
-        string FCNT,
-        string FCTRL,
-        string FHDR,
-        string F_OPTS,
-        string F_PORT,
-        string MAC_PAYLOAD,
-        string MHDR,
-        string MIC,
-        string NET_ID,
         string PHY_PAYLOAD,
         uint64 AIR_TIME,
         uint8 ENABLE,
@@ -143,6 +131,13 @@ static int stop = 0;
  */
 TRAP_DEFAULT_SIGNAL_HANDLER(stop = 1)
 
+/**
+ * Function trap finalization and print error.
+ */
+void trap_fin(char *arg) {
+    fprintf(stderr, arg);
+    TRAP_DEFAULT_FINALIZATION();
+}
 
 /** ---- MAIN ----- */
 int main(int argc, char **argv) {
@@ -161,7 +156,7 @@ int main(int argc, char **argv) {
 
     /*
      * Macro allocates and initializes module_info structure according to MODULE_BASIC_INFO and MODULE_PARAMS
-     * definitions on the lines 69 and 77 of this file. It also creates a string with short_opt letters for getopt
+     * definitions on the lines 100 and 114 of this file. It also creates a string with short_opt letters for getopt
      * function called "module_getopt_string" and long_options field for getopt_long function in variable "long_options"
      */
     INIT_MODULE_INFO_STRUCT(MODULE_BASIC_INFO, MODULE_PARAMS)
@@ -186,38 +181,33 @@ int main(int argc, char **argv) {
                 sscanf(optarg, "%d", &hd);
                 if ((hd == 0) || (hd == 1))
                     break;
-                fprintf(stderr, "Invalid arguments defines explicit header 1/0 (true/false) -e.\n");
+                trap_fin("Invalid arguments defines explicit header 1/0 (true/false) -e.\n");
                 FREE_MODULE_INFO_STRUCT(MODULE_BASIC_INFO, MODULE_PARAMS);
-                TRAP_DEFAULT_FINALIZATION();
                 return -1;
             case 'r':
                 sscanf(optarg, "%d", &dr);
                 if ((dr == 0) || (dr == 1))
                     break;
-                fprintf(stderr, "Invalid arguments low data rate 1/0 (true/false) -r.\n");
+                trap_fin("Invalid arguments low data rate 1/0 (true/false) -r.\n");
                 FREE_MODULE_INFO_STRUCT(MODULE_BASIC_INFO, MODULE_PARAMS);
-                TRAP_DEFAULT_FINALIZATION();
                 return -1;
             case 'p':
                 sscanf(optarg, "%d", &ps);
                 if ((ps >= 0) || (ps <= 100))
                     break;
-                fprintf(stderr, "Invalid arguments preamble symbol 0 - 100 -p.\n");
+                trap_fin("Invalid arguments preamble symbol 0 - 100 -p.\n");
                 FREE_MODULE_INFO_STRUCT(MODULE_BASIC_INFO, MODULE_PARAMS);
-                TRAP_DEFAULT_FINALIZATION();
                 return -1;
             case 'd':
                 sscanf(optarg, "%lf", &dt);
                 if ((dt >= 0) || (dt <= 100))
                     break;
-                fprintf(stderr, "Invalid arguments dutycycle 0 - 100% -d.\n");
+                trap_fin("Invalid arguments dutycycle 0 - 100% -d.\n");
                 FREE_MODULE_INFO_STRUCT(MODULE_BASIC_INFO, MODULE_PARAMS);
-                TRAP_DEFAULT_FINALIZATION();
                 return -1;
             default:
-                fprintf(stderr, "Invalid arguments.\n");
+                trap_fin("Invalid arguments.\n");
                 FREE_MODULE_INFO_STRUCT(MODULE_BASIC_INFO, MODULE_PARAMS);
-                TRAP_DEFAULT_FINALIZATION();
                 return -1;
         }
     }
@@ -225,6 +215,7 @@ int main(int argc, char **argv) {
     /** Create Input UniRec templates */
     ur_template_t *in_tmplt = ur_create_input_template(0, "SIZE,SF,BAD_WIDTH,CODE_RATE,TIMESTAMP,PHY_PAYLOAD", NULL);
     if (in_tmplt == NULL) {
+        ur_free_template(in_tmplt);
         fprintf(stderr, "Error: Input template could not be created.\n");
         return -1;
     }
@@ -233,6 +224,7 @@ int main(int argc, char **argv) {
     ur_template_t *out_tmplt = ur_create_output_template(0, "DEV_ADDR,TIMESTAMP,AIR_TIME,ENABLE,PHY_PAYLOAD", NULL);
     if (out_tmplt == NULL) {
         ur_free_template(in_tmplt);
+        ur_free_template(out_tmplt);
         fprintf(stderr, "Error: Output template could not be created.\n");
         return -1;
     }
@@ -242,6 +234,7 @@ int main(int argc, char **argv) {
     if (out_rec == NULL) {
         ur_free_template(in_tmplt);
         ur_free_template(out_tmplt);
+        ur_free_record(out_rec);
         fprintf(stderr, "Error: Memory allocation problem (output record).\n");
         return -1;
     }
@@ -266,7 +259,6 @@ int main(int argc, char **argv) {
         /** Initialization physical payload for parsing and reversing octet fields. */
         lr_initialization(ur_get_ptr(in_tmplt, in_rec, F_PHY_PAYLOAD));
 
-        ur_set_string(out_tmplt, out_rec, F_MHDR, MHDR);
         ur_set_string(out_tmplt, out_rec, F_PHY_PAYLOAD, PHYPayload);
 
         if ((ur_get_len(in_tmplt, in_rec, F_NWK_SKEY) == 32) && (ur_get_len(in_tmplt, in_rec, F_APP_SKEY) == 32)) {
@@ -276,27 +268,10 @@ int main(int argc, char **argv) {
         }
 
         /** Identity message type */
-        if (lr_is_join_request_message()) {
-            ur_set_string(out_tmplt, out_rec, F_APP_EUI, AppEUI);
-            ur_set_string(out_tmplt, out_rec, F_DEV_EUI, DevEUI);
-            ur_set_string(out_tmplt, out_rec, F_DEV_NONCE, DevNonce);
-            ur_set_string(out_tmplt, out_rec, F_MIC, MIC);
-        } else if (lr_is_join_accept_message()) {
-            ur_set_string(out_tmplt, out_rec, F_APP_NONCE, AppNonce);
-            ur_set_string(out_tmplt, out_rec, F_NET_ID, NetID);
+        if (lr_is_join_accept_message()) {
             ur_set_string(out_tmplt, out_rec, F_DEV_ADDR, DevAddr);
-            ur_set_string(out_tmplt, out_rec, F_MIC, MIC);
         } else if (lr_is_data_message()) {
             ur_set_string(out_tmplt, out_rec, F_DEV_ADDR, DevAddr);
-            ur_set_string(out_tmplt, out_rec, F_FCTRL, FCtrl);
-            ur_set_string(out_tmplt, out_rec, F_FCNT, FCnt);
-            ur_set_string(out_tmplt, out_rec, F_MIC, MIC);
-            ur_set_string(out_tmplt, out_rec, F_FHDR, FHDR);
-            ur_set_string(out_tmplt, out_rec, F_F_PORT, FPort);
-            ur_set_string(out_tmplt, out_rec, F_MAC_PAYLOAD, MACPayload);
-
-            if (FOptsLen != 0)
-                ur_set_string(out_tmplt, out_rec, F_F_OPTS, FOpts);
         }
 
         /** 
@@ -339,7 +314,6 @@ int main(int argc, char **argv) {
                 ur_set(out_tmplt, out_rec, F_ENABLE, pre->ENABLE);
                 ur_set(out_tmplt, out_rec, F_AIR_TIME, pre->AIR_TIME);
                 ur_set(out_tmplt, out_rec, F_TIMESTAMP, pre->TIMESTAMP);
-                ur_copy_fields(out_tmplt, out_rec, out_tmplt, out_rec);
 
                 ret = trap_send(0, out_rec, MAX_MSG_SIZE);
                 TRAP_DEFAULT_SEND_ERROR_HANDLING(ret, continue, break);
