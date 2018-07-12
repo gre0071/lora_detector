@@ -89,6 +89,30 @@ UR_FIELDS(
         uint8 ENABLE,
         string NWK_SKEY,
         string APP_SKEY
+//        string GW_ID,
+//        string NODE_MAC,
+//        uint32 US_COUNT,
+//        uint32 FRQ,
+//        uint32 RF_CHAIN,
+//        uint32 RX_CHAIN,
+//        string STATUS,
+//        string MOD,
+//        double RSSI,
+//        double SNR,
+//        string APP_EUI,
+//        string APP_NONCE,
+//        string DEV_EUI,
+//        string DEV_NONCE,
+//        string FCTRL,
+//        string FHDR,
+//        string F_OPTS,
+//        string F_PORT,
+//        string FRM_PAYLOAD,
+//        string LORA_PACKET,
+//        string MAC_PAYLOAD,
+//        string MHDR,
+//        string MIC,
+//        string NET_ID
         )
 
 trap_module_info_t *module_info = NULL;
